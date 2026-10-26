@@ -1,0 +1,122 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum AuctionStatus {
+  ACTIVE
+  CLOSED
+  DESERTED
+  CANCELLED
+}
+
+model User {
+  id           String   @id @default(uuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  role         Role     @default(USER)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relaciones
+  auctions          Auction[]      @relation("SellerAuctions")
+  cancelledAuctions Auction[]      @relation("AdminCancelledAuctions")
+  bids              Bid[]
+  refreshTokens     RefreshToken[]
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Category {
+  id          String   @id @default(uuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  auctions Auction[]
+
+  @@map("categories")
+}
+
+model Auction {
+  id            String        @id @default(uuid())
+  title         String
+  description   String        @db.Text
+  imageUrl      String?
+  startingPrice Decimal       @db.Decimal(12, 2)
+  minIncrement  Decimal       @db.Decimal(12, 2)
+  currentPrice  Decimal       @db.Decimal(12, 2)
+  startDate     DateTime      @default(now())
+  endDate       DateTime
+  status        AuctionStatus @default(ACTIVE)
+
+  // Categoría: No permite eliminar categoría si tiene subastas (Restricción de negocio)
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  // Vendedor
+  sellerId String
+  seller   User   @relation("SellerAuctions", fields: [sellerId], references: [id], onDelete: Restrict)
+
+  // Moderación / Cancelación
+  cancelledById      String?
+  cancelledBy        User?     @relation("AdminCancelledAuctions", fields: [cancelledById], references: [id], onDelete: SetNull)
+  cancellationReason String?   @db.Text
+  cancelledAt        DateTime?
+
+  // Ofertas
+  bids Bid[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([sellerId, status])
+  @@index([categoryId, status])
+  @@index([endDate, status])
+  @@map("auctions")
+}
+
+model Bid {
+  id     String  @id @default(uuid())
+  amount Decimal @db.Decimal(12, 2)
+
+  auctionId String
+  auction   Auction @relation(fields: [auctionId], references: [id], onDelete: Restrict)
+
+  bidderId String
+  bidder   User   @relation(fields: [bidderId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+
+  @@index([auctionId, amount(sort: Desc)])
+  @@index([bidderId])
+  @@map("bids")
+}
